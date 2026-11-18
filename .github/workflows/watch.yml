@@ -1,0 +1,51 @@
+name: Watch Cornell courses
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # every 10 minutes (GitHub may run it a few minutes late)
+  workflow_dispatch:          # lets you click "Run workflow" by hand
+    inputs:
+      mode:
+        description: "What to do"
+        type: choice
+        default: check
+        options:
+          - check        # normal run: check courses, email if something opened
+          - test-email   # just send a test email
+          - status       # just print statuses, no email
+
+permissions:
+  contents: write             # needed to save state.json back to the repo
+
+concurrency:
+  group: course-watch
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check courses
+        run: |
+          case "${{ github.event.inputs.mode }}" in
+            test-email) python3 course_watcher.py --test-email ;;
+            status)     python3 course_watcher.py --status ;;
+            *)          python3 course_watcher.py ;;
+          esac
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+
+      - name: Save state
+        run: |
+          if [ -n "$(git status --porcelain state.json)" ]; then
+            git config user.name "course-watcher"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "Update course state"
+            git push
+          fi
